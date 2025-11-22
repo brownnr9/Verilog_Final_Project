@@ -1,0 +1,12 @@
+# Quartus Database and Build Files
+db/
+incremental_db/
+output_files/
+.qws
+.qes
+.rpt
+
+# Lock files, user-specific data, and logs
+*.bak
+*.log
+*~
