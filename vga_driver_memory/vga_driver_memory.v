@@ -27,27 +27,26 @@ module vga_driver_memory (
 	output 						VGA_VS
 );
 
-	// Turn off all displays.
-	assign	HEX0		=	7'h7F; // Display nothing
-	assign	HEX1		=	7'h7F;
-	assign	HEX2		=	7'h7F;
-	assign	HEX3		=	7'h7F;
+	// Display Logic
+	assign	HEX0 = 7'h7F; 
+	assign	HEX1 = 7'h7F;
+	assign	HEX2 = 7'h7F;
+	assign	HEX3 = 7'h7F;
 	
 	// Internal Wires and Registers
-	wire [9:0] x; // current x (0 to 639)
-	wire [9:0] y; // current y (0 to 479)
-	wire active_pixels; // high when drawing in the 640x480 region
+	wire [9:0] x; // current VGA x pixel (0 to 639)
+	wire [9:0] y; // current VGA y pixel (0 to 479)
+	wire active_pixels; 
 	
 	wire clk;
 	wire rst;
 
 	assign clk = CLOCK_50;
-	assign rst = SW[0]; // SW[0] acts as a system reset (active high in this usage)
+	assign rst = SW[0]; // SW[0] is the system reset (active high)
 
-	// LEDR[0] indicates if we are in the active drawing area
+	// LEDR[0] shows active pixel area
 	assign LEDR[0] = active_pixels;
-    // Keep other LEDs off
-    assign LEDR[9:1] = 9'h000;
+    assign LEDR[9:1] = 9'h00; // Keep other LEDs off
 
 	// --- VGA Driver Instantiation ---
 	vga_driver the_vga(
@@ -66,57 +65,66 @@ module vga_driver_memory (
 	// --- Bouncing Box Parameters ---
 	parameter BOX_WIDTH 	= 10'd30;
 	parameter BOX_HEIGHT 	= 10'd30;
-	parameter BOX_Y_START 	= 10'd225; // Center the box vertically: (480/2) - (30/2) = 240 - 15 = 225
-	parameter MOVE_STEP 	= 10'd2;   // Move 2 pixels per update
-	parameter MAX_X 		= 10'd639; // Screen width end pixel
+	parameter BOX_Y_START 	= 10'd225;
+	parameter MOVE_STEP 	= 10'd4;   // Movement step size
+	parameter MAX_X 		= 10'd639; // Rightmost pixel
+	
+	// Define Wall Boundaries for Collision Check
+	parameter RIGHT_WALL_THRESHOLD = MAX_X - BOX_WIDTH + 10'd1; 
+	parameter LEFT_WALL_THRESHOLD  = 10'd0; 
 
-	// --- State Registers for Box Position and Direction ---
+	// --- State Register for Box Position ---
 	reg [9:0] box_x = 10'd50; // Current left edge X position
-	reg direction = 1'b1;     // 1'b1: Right, 1'b0: Left
 
-	// --- Speed Control Logic ---
-	// 22-bit counter: 50MHz / 2^22 = ~11.9 updates per second
+
+	/* - - - - - - - - - - - MOVEMENT RATE LIMITER - - - - - - - */
+	
+	// Push buttons are typically active LOW (0 when pressed).
+	// These wires provide the raw, inverted key state (1 when pressed).
+	wire key_pressed_0 = ~KEY[0]; // Move Right (held high when pressed)
+	wire key_pressed_1 = ~KEY[1]; // Move Left (held high when pressed)
+
+	// 22-bit counter for rate limiting: 50MHz / 2^22 = ~11.9 updates per second
 	reg [21:0] move_counter = 22'd0;
-	parameter MOVE_SPEED_DIV = 22'd2097152; // 2^22
+	parameter MOVE_SPEED_DIV = 22'd2097152; 
 	wire move_en = (move_counter == (MOVE_SPEED_DIV - 1'b1));
 
+	// Rate Limiter Logic
+	always @(posedge clk or negedge rst) begin
+		if (rst == 1'b0) begin
+			move_counter <= 22'd0;
+		end else begin
+			move_counter <= move_counter + 1'b1;
+			if (move_en) begin
+				move_counter <= 22'd0; // Reset counter when movement is enabled
+			end
+		end
+	end
 
-	// --- Box Movement Logic (50MHz Clock) ---
+
+	/* - - - - - - - - - - - CONTINUOUS MOVEMENT CONTROL - - - - - - - */
+
 	always @(posedge clk or negedge rst)
 	begin
 		if (rst == 1'b0) begin
-			// Reset state
 			box_x <= 10'd50;
-			direction <= 1'b1;
-			move_counter <= 22'd0;
 		end
 		else begin
-			// Increment counter
-			move_counter <= move_counter + 1'b1;
-
-			if (move_en) begin // Update position only when the slow clock is enabled
-				// Reset the counter on movement cycle
-				move_counter <= 22'd0;
-
-				if (direction == 1'b1) begin // Moving Right
-					// Check right edge: box's right edge (box_x + BOX_WIDTH) vs MAX_X (639)
-					if (box_x >= (MAX_X - BOX_WIDTH + 10'd1) - MOVE_STEP) begin
-						// Hit right edge, reverse direction and move one step left
-						direction <= 1'b0;
-						box_x <= box_x - MOVE_STEP;
-					end else begin
-						// Move right
+			// Only attempt to move the box when the rate limiter is enabled
+			if (move_en) begin
+				
+				// --- Move Right Logic (Continuous while KEY[0] is held) ---
+				if (key_pressed_0) begin
+					// Check right collision: only move if the next step stays within the wall boundary
+					if (box_x <= (RIGHT_WALL_THRESHOLD - MOVE_STEP)) begin
 						box_x <= box_x + MOVE_STEP;
 					end
 				end
-				else begin // Moving Left
-					// Check left edge: box's left edge (box_x) vs 0
-					if (box_x <= MOVE_STEP) begin
-						// Hit left edge, reverse direction and move one step right
-						direction <= 1'b1;
-						box_x <= box_x + MOVE_STEP;
-					end else begin
-						// Move left
+
+				// --- Move Left Logic (Continuous while KEY[1] is held) ---
+				if (key_pressed_1) begin
+					// Check left collision: only move if the next step stays within the wall boundary
+					if (box_x >= (LEFT_WALL_THRESHOLD + MOVE_STEP)) begin
 						box_x <= box_x - MOVE_STEP;
 					end
 				end
