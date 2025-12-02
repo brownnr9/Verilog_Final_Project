@@ -1,4 +1,4 @@
-module Final_Project (
+module top(
 	input 						CLOCK_50,
 
 	// KEY (Active Low)
