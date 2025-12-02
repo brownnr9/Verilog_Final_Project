@@ -18,11 +18,11 @@ module top(
 	output 						VGA_VS
 );
 
-	// --- GLOBAL GAME PARAMETERS (Defined once here) ---
+	// --- GLOBAL GAME PARAMETERS (Defined once here) ---                                                          
 	// Player/Box Dimensions
 	parameter BOX_WIDTH 	= 10'd30;
 	parameter BOX_HEIGHT 	= 10'd30;
-	parameter BOX_Y_START 	= 10'd225;
+	parameter BOX_Y_START 	= 10'd315;
 	// Movement Speed (used by player_control)
 	parameter MOVE_STEP 	= 10'd4; 
 
@@ -84,5 +84,14 @@ module top(
 		VGA_G <= vga_g_color;
 		VGA_B <= vga_b_color;
 	end
+	
+	// ---3. Instantiate slower game clock (pass into control module and moving objects)
+	wire game_en;
+	game_clock_generator game_clk(clk, rst, game_en);
+	
+	//---4. Instantiate player control module
+	
+	player_control#(.BOX_WIDTH(BOX_WIDTH), .MOVE_STEP(MOVE_STEP)) the_controller(
+		clk, rst, game_en, KEY[1:0], 		player_x_pos);
 
 endmodule
