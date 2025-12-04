@@ -20,15 +20,15 @@ module top(
 
 	// --- GLOBAL GAME PARAMETERS (Defined once here) ---
 	// Player/Box Dimensions
-	parameter PLAYER_WIDTH 	= 10'd30;
-	parameter PLAYER_HEIGHT = 10'd30;
-	parameter PLAYER_Y_START = 10'd315; // Fixed Y position for player
+	parameter PLAYER_WIDTH 	    = 10'd30;
+	parameter PLAYER_BASE_HEIGHT= 10'd30; // Player segment height
+	parameter PLAYER_Y_START    = 10'd315; // Fixed Y position for player base
 	// Movement Speed (used by player_control)
-	parameter MOVE_STEP 	= 10'd4;
+	parameter MOVE_STEP 	    = 10'd4;
 
     // Obstacle Parameters
-    parameter OBSTACLE_WIDTH    = 10'd40; // Slightly larger obstacle
-    parameter OBSTACLE_HEIGHT   = 10'd40;
+    parameter OBSTACLE_WIDTH    = 10'd30; // Changed to match player size
+    parameter OBSTACLE_HEIGHT   = 10'd30; // Changed to match player size
     parameter OBSTACLE_SPEED    = 10'd8;
 
 
@@ -60,6 +60,9 @@ module top(
 	
 	// Wire for Collision Detection (Output from detector, Input to control)
 	wire obsticle_collision; 
+	
+	// Wire for Player's current dynamic height
+	wire [9:0] player_current_height; // New wire for player's accumulated height
 
 	// Wires for Color Data (Output from vga_driver_memory/Renderer)
 	wire [7:0] vga_r_color;
@@ -96,6 +99,16 @@ module top(
 		.buttons(KEY[1:0]), 		
 		.box_x(player_x_pos)
 	);
+	
+    // --- 3b. Instantiate Player Health/Height Manager ---
+    // Tracks and updates the player's total height based on collision events
+    player_height_manager #(.BASE_HEIGHT(PLAYER_BASE_HEIGHT)) the_height_manager (
+        .clk(clk),
+        .rst(rst),
+        .game_en(game_en),
+        .collision(obsticle_collision),
+        .current_height(player_current_height) // Output of current dynamic height
+    );
 
     // --- 4. Instantiate Obstacle Control Module ---
     // Passes collision signal to the obstacle_control module
@@ -114,10 +127,12 @@ module top(
     );
 	
 	// --- 4b. Instantiate Collision Detector Module ---
+	// Uses the dynamic player height for vertical collision checks
 	collision_detector#(.PLAYER_WIDTH(PLAYER_WIDTH), 
-						.PLAYER_HEIGHT(PLAYER_HEIGHT), 
+						.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // Parameter for base height
 						.PLAYER_Y(PLAYER_Y_START)) obsticle_collision_detector(
 			.player_x(player_x_pos),
+			.player_height(player_current_height), // Dynamic height input
 			.obstacle_x(obstacle_x_pos),
         	.obstacle_y(obstacle_y_pos),
         	.obstacle_width(obstacle_width_wire),
@@ -125,11 +140,12 @@ module top(
 		 	.collision_detected(obsticle_collision));
 
 	// --- 5. VGA Display Renderer Instantiation (Color Logic) ---
-	// Now passes both player and obstacle position/dimensions
+	// Now passes the dynamic player height
 	vga_driver_memory #(.BOX_WIDTH(PLAYER_WIDTH),
-                         .BOX_HEIGHT(PLAYER_HEIGHT),
+                         .BOX_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // Parameter for base height
                          .BOX_Y_START(PLAYER_Y_START)) the_renderer (
 		.player_x(player_x_pos),
+		.player_height(player_current_height), // Dynamic height input
         .obstacle_x(obstacle_x_pos),
         .obstacle_y(obstacle_y_pos),
         .obstacle_width(obstacle_width_wire),

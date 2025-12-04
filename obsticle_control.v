@@ -38,7 +38,7 @@ module obstacle_control #(
             obstacle_y_pos <= MIN_Y;
         end else if (game_en) begin
             // Check for collision with the bottom of the screen
-            if (obstacle_y_pos >= RESET_THRESHOLD) begin
+            if (obstacle_y_pos >= RESET_THRESHOLD || collision) begin
                 // Reset to top (start slightly off screen)
                 obstacle_y_pos <= MIN_Y; 
                 // For simplicity, reset X position to a new location (fixed for now)
