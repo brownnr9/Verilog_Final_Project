@@ -22,7 +22,7 @@ module top(
 	// Player/Box Dimensions
 	parameter PLAYER_WIDTH 	= 10'd30;
 	parameter PLAYER_HEIGHT = 10'd30;
-	parameter PLAYER_Y_START = 10'd315;
+	parameter PLAYER_Y_START = 10'd315; // Fixed Y position for player
 	// Movement Speed (used by player_control)
 	parameter MOVE_STEP 	= 10'd4;
 
@@ -57,6 +57,9 @@ module top(
     wire [9:0] obstacle_y_pos;
     wire [9:0] obstacle_width_wire;
     wire [9:0] obstacle_height_wire;
+	
+	// Wire for Collision Detection (Output from detector, Input to control)
+	wire obsticle_collision; 
 
 	// Wires for Color Data (Output from vga_driver_memory/Renderer)
 	wire [7:0] vga_r_color;
@@ -95,24 +98,37 @@ module top(
 	);
 
     // --- 4. Instantiate Obstacle Control Module ---
+    // Passes collision signal to the obstacle_control module
     obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH),
                          .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT),
                          .OBSTACLE_Y_SPEED(OBSTACLE_SPEED)) the_obstacle_control (
         .clk(clk),
         .rst(rst),
         .game_en(game_en),
+		.collision(obsticle_collision), 
         .obstacle_x_pos(obstacle_x_pos),
         .obstacle_y_pos(obstacle_y_pos),
         // These wires are needed for the collision module later
         .obstacle_width(obstacle_width_wire),
         .obstacle_height(obstacle_height_wire)
     );
+	
+	// --- 4b. Instantiate Collision Detector Module ---
+	collision_detector#(.PLAYER_WIDTH(PLAYER_WIDTH), 
+						.PLAYER_HEIGHT(PLAYER_HEIGHT), 
+						.PLAYER_Y(PLAYER_Y_START)) obsticle_collision_detector(
+			.player_x(player_x_pos),
+			.obstacle_x(obstacle_x_pos),
+        	.obstacle_y(obstacle_y_pos),
+        	.obstacle_width(obstacle_width_wire),
+        	.obstacle_height(obstacle_height_wire),
+		 	.collision_detected(obsticle_collision));
 
 	// --- 5. VGA Display Renderer Instantiation (Color Logic) ---
 	// Now passes both player and obstacle position/dimensions
 	vga_driver_memory #(.BOX_WIDTH(PLAYER_WIDTH),
-                        .BOX_HEIGHT(PLAYER_HEIGHT),
-                        .BOX_Y_START(PLAYER_Y_START)) the_renderer (
+                         .BOX_HEIGHT(PLAYER_HEIGHT),
+                         .BOX_Y_START(PLAYER_Y_START)) the_renderer (
 		.player_x(player_x_pos),
         .obstacle_x(obstacle_x_pos),
         .obstacle_y(obstacle_y_pos),

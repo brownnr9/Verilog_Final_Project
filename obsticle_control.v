@@ -7,7 +7,8 @@ module obstacle_control #(
     input 					clk, 		// 50 MHz clock
     input 					rst, 		// Reset signal (active high)
     input 					game_en,	// Slow clock enable from game_clock_generator
-
+	input						collision,
+	
     // Outputs for the renderer and collision detector
     output reg [9:0] 		obstacle_x_pos, 
     output reg [9:0] 		obstacle_y_pos,
@@ -44,6 +45,7 @@ module obstacle_control #(
                 obstacle_x_pos <= 10'd300; 
             end else begin
                 // Move down the screen
+					 if(!collision)
                 obstacle_y_pos <= obstacle_y_pos + OBSTACLE_Y_SPEED;
             end
         end
