@@ -22,7 +22,7 @@ module top(
 	// Player/Box Dimensions
 	parameter PLAYER_WIDTH 	    = 10'd30;
 	parameter PLAYER_BASE_HEIGHT= 10'd30; // Player segment height
-	parameter PLAYER_Y_START    = 10'd315; // Fixed Y position for player base
+	parameter PLAYER_Y_START    = 10'd405; // Fixed Y position for player base
 	// Movement Speed (used by player_control)
 	parameter MOVE_STEP 	    = 10'd4;
 
@@ -30,6 +30,11 @@ module top(
     parameter OBSTACLE_WIDTH    = 10'd30; // Changed to match player size
     parameter OBSTACLE_HEIGHT   = 10'd30; // Changed to match player size
     parameter OBSTACLE_SPEED    = 10'd8;
+    
+    // Bank Parameters (New)
+    parameter BANK_X_START      = 10'd50;  // Updated to left side location
+	parameter BANK_Y_START      = 10'd315; // Same baseline as player
+	parameter BANK_WIDTH        = 10'd60;
 
 
 	// --- System Clock and Reset ---
@@ -62,7 +67,13 @@ module top(
 	wire obsticle_collision; 
 	
 	// Wire for Player's current dynamic height
-	wire [9:0] player_current_height; // New wire for player's accumulated height
+	wire [9:0] player_current_height; 
+	
+	// Wire for Box Drop (Output from bank_control, Input to player_health_manager)
+    wire box_dropped;
+    
+    // Wire for Bank Level/Score (Output from bank_control)
+    wire [7:0] bank_level; 
 
 	// Wires for Color Data (Output from vga_driver_memory/Renderer)
 	wire [7:0] vga_r_color;
@@ -101,17 +112,31 @@ module top(
 	);
 	
     // --- 3b. Instantiate Player Health/Height Manager ---
-    // Tracks and updates the player's total height based on collision events
     player_height_manager #(.BASE_HEIGHT(PLAYER_BASE_HEIGHT)) the_height_manager (
         .clk(clk),
         .rst(rst),
         .game_en(game_en),
         .collision(obsticle_collision),
+        .box_dropped_in(box_dropped), // NEW INPUT
         .current_height(player_current_height) // Output of current dynamic height
     );
+    
+    // --- 3c. Instantiate Bank Control Module (UPDATED) ---
+    bank_control #(.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // PLAYER_WIDTH removed
+                   .BANK_X_START(BANK_X_START),
+                   .BANK_WIDTH(BANK_WIDTH)) the_bank_control (
+        .clk(clk),
+        .rst(rst),
+        .game_en(game_en),
+        .key_2_in(KEY[2]), // KEY[2] input for drop action
+        .player_x_pos(player_x_pos),
+        .player_current_height(player_current_height),
+        .box_dropped(box_dropped),
+        .bank_level(bank_level)
+    );
+
 
     // --- 4. Instantiate Obstacle Control Module ---
-    // Passes collision signal to the obstacle_control module
     obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH),
                          .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT),
                          .OBSTACLE_Y_SPEED(OBSTACLE_SPEED)) the_obstacle_control (
@@ -127,7 +152,6 @@ module top(
     );
 	
 	// --- 4b. Instantiate Collision Detector Module ---
-	// Uses the dynamic player height for vertical collision checks
 	collision_detector#(.PLAYER_WIDTH(PLAYER_WIDTH), 
 						.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // Parameter for base height
 						.PLAYER_Y(PLAYER_Y_START)) obsticle_collision_detector(
@@ -140,18 +164,21 @@ module top(
 		 	.collision_detected(obsticle_collision));
 
 	// --- 5. VGA Display Renderer Instantiation (Color Logic) ---
-	// Now passes the dynamic player height
+	// Now passes the dynamic player height and bank parameters
 	vga_driver_memory #(.BOX_WIDTH(PLAYER_WIDTH),
-                         .BOX_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // Parameter for base height
-                         .BOX_Y_START(PLAYER_Y_START)) the_renderer (
+                         .BOX_BASE_HEIGHT(PLAYER_BASE_HEIGHT), 
+                         .BOX_Y_START(PLAYER_Y_START),
+                         .BANK_X_START(BANK_X_START), 
+                         .BANK_WIDTH(BANK_WIDTH)) the_renderer ( 
 		.player_x(player_x_pos),
-		.player_height(player_current_height), // Dynamic height input
+		.player_height(player_current_height), 
         .obstacle_x(obstacle_x_pos),
         .obstacle_y(obstacle_y_pos),
         .obstacle_width(obstacle_width_wire),
         .obstacle_height(obstacle_height_wire),
 		.x(x),
 		.y(y),
+        .bank_level(bank_level), 
 		.active_pixels(active_pixels),
 		.VGA_R(vga_r_color),
 		.VGA_G(vga_g_color),
