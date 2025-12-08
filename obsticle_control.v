@@ -3,13 +3,16 @@ module obstacle_control #(
     parameter OBSTACLE_WIDTH 	= 10'd30,
     parameter OBSTACLE_HEIGHT 	= 10'd30,
     parameter OBSTACLE_X_SPEED 	= 10'd5,    // Horizontal speed (moving left)
-    parameter Y_AMPLITUDE       = 10'd10,   // Max vertical distance of the PUSH UP
-    parameter Y_INITIAL_OFFSET  = 10'd100    // New: Initial height (start high)
+    // Removed Y_AMPLITUDE parameter
+    parameter Y_INITIAL_OFFSET  = 10'd50    // Initial height for the obstacle
 ) (
     input 					clk, 		// 50 MHz clock
     input 					rst, 		// Reset signal (active high)
     input 					game_en,	// Slow clock enable from game_clock_generator
 	input						collision,  // Input from collision detector
+	
+    // NEW DYNAMIC INPUT: Amplitude from the Random Generator
+    input [9:0]             y_amplitude_in, 
 	
     // Outputs for the renderer and collision detector
     output reg [9:0] 		obstacle_x_pos, 
@@ -26,8 +29,7 @@ module obstacle_control #(
     parameter X_RESET_THRESHOLD = 10'd0 ; // Reset when completely off screen left
     parameter Y_BASELINE 	    = 10'd315; // The fixed Y baseline (from top.v player Y start)
     parameter Y_MIN_START       = Y_BASELINE - OBSTACLE_HEIGHT; // Top edge of the obstacle at baseline
-    parameter Y_STEP_SIZE      = 10'd3; // Vertical step size
-    parameter Y_MAX_DISPLACEMENT = Y_INITIAL_OFFSET + Y_AMPLITUDE; // Highest point of the arc
+    localparam Y_STEP_SIZE      = 10'd3; // Vertical step size
 
     // --- Arc Control Registers ---
     reg  [9:0] y_offset;        // Current vertical displacement from the baseline (Total height)
@@ -41,6 +43,10 @@ module obstacle_control #(
 
     // --- Obstacle Movement Logic (Sequential) ---
     always @(posedge clk or negedge rst) begin
+        // The maximum displacement must be calculated dynamically since y_amplitude_in is a wire, not a parameter.
+        reg [9:0] y_max_displacement; 
+        y_max_displacement = Y_INITIAL_OFFSET + y_amplitude_in;
+        
         if (rst == 1'b0) begin
             // Initialization: Start off-screen right
             obstacle_x_pos <= X_START_POS; 
@@ -78,8 +84,8 @@ module obstacle_control #(
                 // 2. Vertical Arc Movement (State Machine)
                 case (arc_state)
                     2'b01: begin // PUSH / Ascending
-                        // Move up until maximum displacement is reached (initial offset + push amplitude)
-                        if (y_offset < Y_MAX_DISPLACEMENT) begin
+                        // Use the dynamically calculated maximum displacement
+                        if (y_offset < y_max_displacement) begin
                             y_offset <= y_offset + Y_STEP_SIZE; 
                         end else begin
                             arc_state <= 2'b10; // Reached peak, switch to FALL

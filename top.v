@@ -30,8 +30,8 @@ module top(
     parameter OBSTACLE_WIDTH    = 10'd30; // Changed to match player size
     parameter OBSTACLE_HEIGHT   = 10'd30; // Changed to match player size
     parameter OBSTACLE_X_SPEED  = 10'd5;  // Horizontal speed (used by obstacle_control)
-    parameter Y_AMPLITUDE       = 10'd60; // Vertical amplitude for the push up
-    parameter Y_INITIAL_OFFSET  = 10'd50; // NEW: Initial height for the obstacle
+    // parameter Y_AMPLITUDE is removed and replaced by the wire 'rand_y_amplitude' below.
+    parameter Y_INITIAL_OFFSET  = 10'd50; // Initial height for the obstacle
     
     // Bank Parameters
     parameter BANK_X_START      = 10'd50;  // Left side location
@@ -76,6 +76,9 @@ module top(
     
     // Wire for Bank Level/Score (Output from bank_control)
     wire [7:0] bank_level; 
+
+    // NEW: Wire for Random Y Amplitude
+    wire [9:0] rand_y_amplitude; 
 
 	// Wires for Color Data (Output from vga_driver_memory/Renderer)
 	wire [7:0] vga_r_color;
@@ -137,18 +140,27 @@ module top(
         .bank_level(bank_level)
     );
 
+    // --- 3d. Instantiate Random Generator Module (Drives Obstacle Amplitude) ---
+    random_generator the_rng(
+        .clk(clk),
+        .rst(rst),
+        .game_en(game_en), // Update randomness on slow clock
+        .random_out(rand_y_amplitude)
+    );
 
     // --- 4. Instantiate Obstacle Control Module ---
+    // Y_AMPLITUDE parameter is now replaced by the input port y_amplitude_in
     obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH),
                          .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT),
                          .OBSTACLE_X_SPEED(OBSTACLE_X_SPEED),
-                         .Y_AMPLITUDE(Y_AMPLITUDE),
-                         .Y_INITIAL_OFFSET(Y_INITIAL_OFFSET)) // Passing the new parameter
+                         .Y_INITIAL_OFFSET(Y_INITIAL_OFFSET)) 
     the_obstacle_control (
         .clk(clk),
         .rst(rst),
         .game_en(game_en),
 		.collision(obsticle_collision), 
+        // NEW PORT CONNECTION: Pass dynamic amplitude from the RNG
+        .y_amplitude_in(rand_y_amplitude), 
         .obstacle_x_pos(obstacle_x_pos),
         .obstacle_y_pos(obstacle_y_pos),
         // These wires are needed for the collision module later
