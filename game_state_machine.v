@@ -1,10 +1,14 @@
 module game_state_machine(
     input clk,
-    input rst,
-    input key_action,       // e.g., KEY[0] - Start / Restart
-    input key_instr,        // e.g., KEY[1] - View Instructions
-    input collision,        // From collision detector
-    output reg [1:0] state
+    input rst,          // System Reset (Active Low based on your other modules)
+    input key_left,     // KEY[1] - Navigate Left
+    input key_right,    // KEY[0] - Navigate Right
+    input key_select,   // KEY[2] - Select Option
+    input key_back,     // KEY[3] - Go Back
+    input collision,    // From collision detector
+    
+    output reg [1:0] state,
+    output reg       menu_selection // 0 = START, 1 = HOW TO PLAY
 );
 
     // --- State Encoding ---
@@ -13,43 +17,64 @@ module game_state_machine(
     parameter S_INSTRUCTIONS = 2'b10;
     parameter S_GAME_OVER    = 2'b11;
 
-    // --- Button Edge Detection (Debouncing handled by user speed usually, but edge is needed) ---
-    reg key_action_prev, key_instr_prev;
-    wire action_pressed = !key_action && key_action_prev; // Falling edge (Active Low)
-    wire instr_pressed  = !key_instr && key_instr_prev;
+    // --- Edge Detection Registers ---
+    // DE1-SoC Keys are Active Low (0 when pressed, 1 when released)
+    // We want to trigger on the "Press" (Falling Edge)
+    reg k_l_q, k_r_q, k_s_q, k_b_q;
+    
+    wire press_left   = k_l_q && !key_left;
+    wire press_right  = k_r_q && !key_right;
+    wire press_select = k_s_q && !key_select;
+    wire press_back   = k_b_q && !key_back;
 
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
-            key_action_prev <= 1'b1;
-            key_instr_prev  <= 1'b1;
             state <= S_START;
+            menu_selection <= 1'b0; // Default to "START"
+            // Reset edge detectors to 1 (unpressed state)
+            k_l_q <= 1'b1; k_r_q <= 1'b1; k_s_q <= 1'b1; k_b_q <= 1'b1;
         end else begin
-            key_action_prev <= key_action;
-            key_instr_prev  <= key_instr;
+            // Register inputs for edge detection
+            k_l_q <= key_left;
+            k_r_q <= key_right;
+            k_s_q <= key_select;
+            k_b_q <= key_back;
 
             case (state)
                 S_START: begin
-                    if (action_pressed) 
-                        state <= S_PLAYING;
-                    else if (instr_pressed) 
-                        state <= S_INSTRUCTIONS;
+                    // Left/Right toggles selection
+                    if (press_right || press_left) begin
+                        menu_selection <= ~menu_selection; 
+                    end
+                    
+                    // Select confirms choice
+                    if (press_select) begin
+                        if (menu_selection == 1'b0)
+                            state <= S_PLAYING;
+                        else
+                            state <= S_INSTRUCTIONS;
+                    end
                 end
 
                 S_INSTRUCTIONS: begin
-                    // Pressing action button goes back to start
-                    if (action_pressed) 
+                    // Back button returns to menu
+                    if (press_back) begin
                         state <= S_START;
+                    end
                 end
 
                 S_PLAYING: begin
+                    // Only collision changes state here (Back button disabled during play)
                     if (collision) 
                         state <= S_GAME_OVER;
                 end
 
                 S_GAME_OVER: begin
-                    // Press action to return to menu
-                    if (action_pressed) 
+                    // Select or Back returns to menu
+                    if (press_select || press_back) begin
                         state <= S_START;
+                        menu_selection <= 1'b0; // Reset to Start
+                    end
                 end
             endcase
         end
