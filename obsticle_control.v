@@ -51,7 +51,7 @@ module obstacle_control #(
     parameter X_RESET_THRESHOLD = 10'd0; // Reset when completely off screen left
     parameter Y_BASELINE 	    = 10'd315; // The fixed Y baseline (from top.v player Y start)
     parameter Y_MIN_START       = Y_BASELINE - OBSTACLE_HEIGHT; // Top edge of the obstacle at baseline
-    localparam Y_STEP_SIZE      = OBSTACLE_X_SPEED; // Vertical step size (matches X speed for smoother arc)
+    localparam Y_STEP_SIZE      = 10'd3; // Vertical step size (matches X speed for smoother arc)
 
     // Assign width/height for external use
     assign obstacle_width       = OBSTACLE_WIDTH;
