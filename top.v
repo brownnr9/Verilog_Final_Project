@@ -1,214 +1,179 @@
 module top(
-	input 						CLOCK_50,
-
-	// KEY (Active Low)
-	input 		[3:0]		KEY,
-
-	// SW
-	input 		[9:0]		SW,
-
-	// VGA Outputs (These are the actual FPGA pins)
-	output 						VGA_BLANK_N,
-	output reg	[7:0]		VGA_B,
-	output 						VGA_CLK,
-	output reg	[7:0]		VGA_G,
-	output 						VGA_HS,
-	output reg	[7:0]		VGA_R,
-	output 						VGA_SYNC_N,
-	output 						VGA_VS
+	input 		CLOCK_50,
+	input [3:0]	KEY,      // KEY[0]=Start, KEY[1]=Instr
+	input [9:0]	SW,       // SW[0]=Reset
+	output 		VGA_BLANK_N,
+	output reg [7:0] VGA_B,
+	output 		VGA_CLK,
+	output reg [7:0] VGA_G,
+	output 		VGA_HS,
+	output reg [7:0] VGA_R,
+	output 		VGA_SYNC_N,
+	output 		VGA_VS
 );
 
-	// --- GLOBAL GAME PARAMETERS (Defined once here) ---
-	// Player/Box Dimensions
-	parameter PLAYER_WIDTH 	    = 10'd30;
-	parameter PLAYER_BASE_HEIGHT= 10'd30; // Player segment height
-	parameter PLAYER_Y_START    = 10'd315; // Fixed Y position for player base
-	// Movement Speed (used by player_control)
-	parameter MOVE_STEP 	    = 10'd4;
+    // --- PARAMETERS [cite: 62] ---
+    parameter PLAYER_WIDTH 	    = 10'd30;
+    parameter PLAYER_BASE_HEIGHT= 10'd30;
+    parameter PLAYER_Y_START    = 10'd315;
+    parameter MOVE_STEP 	    = 10'd4;
+    parameter OBSTACLE_WIDTH    = 10'd30;
+    parameter OBSTACLE_HEIGHT   = 10'd30;
+    parameter OBSTACLE_X_SPEED  = 10'd5;
+    parameter Y_INITIAL_OFFSET  = 10'd50;
+    parameter BANK_X_START      = 10'd50;
+    parameter BANK_WIDTH        = 10'd60;
 
-    // Obstacle Parameters
-    parameter OBSTACLE_WIDTH    = 10'd30; // Changed to match player size
-    parameter OBSTACLE_HEIGHT   = 10'd30; // Changed to match player size
-    parameter OBSTACLE_X_SPEED  = 10'd5;  // Horizontal speed (used by obstacle_control)
-    // parameter Y_AMPLITUDE is removed and replaced by the wire 'rand_y_amplitude' below.
-    parameter Y_INITIAL_OFFSET  = 10'd50; // Initial height for the obstacle
+    // --- CLOCK & RESET ---
+    wire clk = CLOCK_50;
+    wire hard_rst = SW[0];
+
+    // --- FSM & STATE LOGIC ---
+    wire [1:0] current_game_state;
+    wire obsticle_collision; // From collision detector
     
-    // Bank Parameters
-    parameter BANK_X_START      = 10'd50;  // Left side location
-	parameter BANK_Y_START      = 10'd315; // Same baseline as player
-	parameter BANK_WIDTH        = 10'd60;
+    // Instantiate State Machine
+    game_state_machine fsm (
+        .clk(clk),
+        .rst(hard_rst),
+        .key_action(KEY[0]), // Press to Start/Restart
+        .key_instr(KEY[1]),  // Press for Instructions
+        .collision(obsticle_collision),
+        .state(current_game_state)
+    );
 
+    // --- CONTROL LOGIC: Pause & Soft Reset ---
+    // 1. Only enable movement logic if we are in PLAYING state (2'b01)
+    wire global_game_en; // From clock generator
+    wire active_game_en = (current_game_state == 2'b01) ? global_game_en : 1'b0;
 
-	// --- System Clock and Reset ---
-	wire clk;
-	wire rst;
+    // 2. Soft Reset: Triggers if Hard Reset is pushed OR if we are on the Start Screen.
+    // This ensures Player and Obstacles reset to starting positions when you return to menu.
+    wire soft_rst = hard_rst && (current_game_state != 2'b00); 
+    // Note: SW[0] (hard_rst) is usually active low or high depending on board. 
+    // Based on your code [cite: 72] "assign rst = SW[0]", assuming Active High reset logic.
+    // If we are in S_START (2'b00), soft_rst becomes 0 (Active Low Reset logic in your modules seems to be mixed, 
+    // but your code says "rst == 1'b0" is reset [cite: 104]).
+    // Let's standardize: create a wire that drives the 'rst' port of your modules.
+    
+    // Your modules check "if (rst == 1'b0)". So we need to feed them 0 to reset.
+    // We want to feed 0 if SW[0] is 0 OR if state is START.
+    wire module_reset_signal = (SW[0] == 1'b1) && (current_game_state != 2'b00);
+    // Explanation: If SW is 0 (reset), signal is 0. If State is Start (00), signal is 0. Otherwise 1.
 
-	assign clk = CLOCK_50;
-	assign rst = SW[0]; // SW[0] is the system reset (active high)
-
-	// --- Internal Communication Wires ---
-	
-	// Wires for Timing
-	wire game_en; // Wire for the slow clock enable signal
-	
-	// Wires for VGA Timing (Outputs from vga_driver)
-	wire [9:0] x; // Current X pixel coordinate
-	wire [9:0] y; // Current Y pixel coordinate
-	wire active_pixels; // High when inside 640x480 boundary
-
-	// Wire for Player Position (Output from player_control)
-	wire [9:0] player_x_pos;
-
-    // Wires for Obstacle Position and Size
-    wire [9:0] obstacle_x_pos;
-    wire [9:0] obstacle_y_pos;
-    wire [9:0] obstacle_width_wire;
-    wire [9:0] obstacle_height_wire;
-	
-	// Wire for Collision Detection (Output from detector, Input to control)
-	wire obsticle_collision; 
-	
-	// Wire for Player's current dynamic height
-	wire [9:0] player_current_height; 
-	
-	// Wire for Box Drop (Output from bank_control, Input to player_height_manager)
+    // --- WIRES ---
+    wire [9:0] x, y;
+    wire active_pixels;
+    wire [9:0] player_x_pos;
+    wire [9:0] obstacle_x_pos, obstacle_y_pos, obstacle_width_wire, obstacle_height_wire;
+    wire [9:0] player_current_height;
     wire box_dropped;
+    wire [7:0] bank_level;
+    wire [9:0] rand_y_amplitude;
+    wire [7:0] vga_r_c, vga_g_c, vga_b_c;
+
+    // --- MODULES ---
+
+    game_clock_generator game_clk(
+        .clk(clk), 
+        .rst(SW[0]), // Clock gen always runs on hard reset
+        .game_en(global_game_en)
+    );
+
+    vga_driver the_vga(
+        .clk(clk),
+        .rst(SW[0]), // VGA always runs on hard reset
+        .vga_clk(VGA_CLK),
+        .hsync(VGA_HS),
+        .vsync(VGA_VS),
+        .active_pixels(active_pixels),
+        .xPixel(x),
+        .yPixel(y),
+        .VGA_BLANK_N(VGA_BLANK_N),
+        .VGA_SYNC_N(VGA_SYNC_N)
+    );
+
+    // For game logic modules, we use 'module_reset_signal' and 'active_game_en'
     
-    // Wire for Bank Level/Score (Output from bank_control)
-    wire [7:0] bank_level; 
+    player_control #(.BOX_WIDTH(PLAYER_WIDTH), .MOVE_STEP(MOVE_STEP)) the_controller(
+        .clk(clk), 
+        .rst(module_reset_signal), // Resets when in Start Menu
+        .game_en(active_game_en),  // Pauses when not Playing
+        .buttons(KEY[1:0]), 		
+        .box_x(player_x_pos)
+    );
 
-    // NEW: Wire for Random Y Amplitude
-    wire [9:0] rand_y_amplitude; 
-
-	// Wires for Color Data (Output from vga_driver_memory/Renderer)
-	wire [7:0] vga_r_color;
-	wire [7:0] vga_g_color;
-	wire [7:0] vga_b_color;
-
-
-	// --- 1. Game Clock Generator Instantiation ---
-	game_clock_generator game_clk(
-		.clk(clk), 
-		.rst(rst), 
-		.game_en(game_en) // Connects to the internal wire
-	);
-
-	// --- 2. VGA Driver Instantiation (Timing Generator) ---
-	vga_driver the_vga(
-		.clk(clk),
-		.rst(rst),
-		.vga_clk(VGA_CLK),
-		.hsync(VGA_HS),
-		.vsync(VGA_VS),
-		.active_pixels(active_pixels),
-		.xPixel(x),
-		.yPixel(y),
-		.VGA_BLANK_N(VGA_BLANK_N),
-		.VGA_SYNC_N(VGA_SYNC_N)
-	);
-	
-	//--- 3. Instantiate player control module
-	player_control#(.BOX_WIDTH(PLAYER_WIDTH), .MOVE_STEP(MOVE_STEP)) the_controller(
-		.clk(clk), 
-		.rst(rst), 
-		.game_en(game_en), 
-		.buttons(KEY[1:0]), 		
-		.box_x(player_x_pos)
-	);
-	
-    // --- 3b. Instantiate Player Height Manager ---
     player_height_manager #(.BASE_HEIGHT(PLAYER_BASE_HEIGHT)) the_health_manager (
         .clk(clk),
-        .rst(rst),
-        .game_en(game_en),
+        .rst(module_reset_signal),
+        .game_en(active_game_en),
         .collision(obsticle_collision),
         .box_dropped_in(box_dropped),
-        .current_height(player_current_height) // Output of current dynamic height
+        .current_height(player_current_height)
     );
-    
-    // --- 3c. Instantiate Bank Control Module ---
-    bank_control #(.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT),
-                   .BANK_X_START(BANK_X_START),
-                   .BANK_WIDTH(BANK_WIDTH)) the_bank_control (
+
+    bank_control #(.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), .BANK_X_START(BANK_X_START), .BANK_WIDTH(BANK_WIDTH)) the_bank_control (
         .clk(clk),
-        .rst(rst),
-        .game_en(game_en),
-        .key_2_in(KEY[2]), // KEY[2] input for drop action
+        .rst(module_reset_signal),
+        .game_en(active_game_en),
+        .key_2_in(KEY[2]), 
         .player_x_pos(player_x_pos),
         .player_current_height(player_current_height),
         .box_dropped(box_dropped),
         .bank_level(bank_level)
     );
 
-    // --- 3d. Instantiate Random Generator Module (Drives Obstacle Amplitude) ---
     random_generator the_rng(
         .clk(clk),
-        .rst(rst),
-        .game_en(game_en), // Update randomness on slow clock
+        .rst(SW[0]), // RNG can keep running to ensure randomness
+        .game_en(global_game_en),
         .random_out(rand_y_amplitude)
     );
 
-    // --- 4. Instantiate Obstacle Control Module ---
-    // Y_AMPLITUDE parameter is now replaced by the input port y_amplitude_in
-    obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH),
-                         .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT),
-                         .OBSTACLE_X_SPEED(OBSTACLE_X_SPEED),
-                         .Y_INITIAL_OFFSET(Y_INITIAL_OFFSET)) 
-    the_obstacle_control (
+    obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH), .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT), .OBSTACLE_X_SPEED(OBSTACLE_X_SPEED), .Y_INITIAL_OFFSET(Y_INITIAL_OFFSET)) the_obstacle_control (
         .clk(clk),
-        .rst(rst),
-        .game_en(game_en),
-		.collision(obsticle_collision), 
-        // NEW PORT CONNECTION: Pass dynamic amplitude from the RNG
+        .rst(module_reset_signal), // Resets in Start Menu
+        .game_en(active_game_en),  // Pauses when not Playing
+        .collision(obsticle_collision), 
         .y_amplitude_in(rand_y_amplitude), 
         .obstacle_x_pos(obstacle_x_pos),
         .obstacle_y_pos(obstacle_y_pos),
-        // These wires are needed for the collision module later
         .obstacle_width(obstacle_width_wire),
         .obstacle_height(obstacle_height_wire)
     );
 	
-	// --- 4b. Instantiate Collision Detector Module ---
-	collision_detector#(.PLAYER_WIDTH(PLAYER_WIDTH), 
-						.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // Parameter for base height
-						.PLAYER_Y(PLAYER_Y_START)) obsticle_collision_detector(
-			.player_x(player_x_pos),
-			.player_height(player_current_height), // Dynamic height input
-			.obstacle_x(obstacle_x_pos),
-        	.obstacle_y(obstacle_y_pos),
-        	.obstacle_width(obstacle_width_wire),
-        	.obstacle_height(obstacle_height_wire),
-		 	.collision_detected(obsticle_collision));
-
-	// --- 5. VGA Display Renderer Instantiation (Color Logic) ---
-	// Now passes the dynamic player height and bank parameters
-	vga_driver_memory #(.BOX_WIDTH(PLAYER_WIDTH),
-                         .BOX_BASE_HEIGHT(PLAYER_BASE_HEIGHT), 
-                         .BOX_Y_START(PLAYER_Y_START),
-                         .BANK_X_START(BANK_X_START), 
-                         .BANK_WIDTH(BANK_WIDTH)) the_renderer ( 
-		.player_x(player_x_pos),
-		.player_height(player_current_height), 
+    collision_detector #(.PLAYER_WIDTH(PLAYER_WIDTH), .PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), .PLAYER_Y(PLAYER_Y_START)) obsticle_collision_detector(
+        .player_x(player_x_pos),
+        .player_height(player_current_height),
         .obstacle_x(obstacle_x_pos),
         .obstacle_y(obstacle_y_pos),
         .obstacle_width(obstacle_width_wire),
         .obstacle_height(obstacle_height_wire),
-		.x(x),
-		.y(y),
+        .collision_detected(obsticle_collision)
+    );
+
+    // Renderer now gets the GAME STATE
+    vga_driver_memory #(.BOX_WIDTH(PLAYER_WIDTH), .BOX_BASE_HEIGHT(PLAYER_BASE_HEIGHT), .BOX_Y_START(PLAYER_Y_START), .BANK_X_START(BANK_X_START), .BANK_WIDTH(BANK_WIDTH)) the_renderer ( 
+        .player_x(player_x_pos),
+        .player_height(player_current_height), 
+        .obstacle_x(obstacle_x_pos),
+        .obstacle_y(obstacle_y_pos),
+        .obstacle_width(obstacle_width_wire),
+        .obstacle_height(obstacle_height_wire),
+        .x(x),
+        .y(y),
         .bank_level(bank_level), 
-		.active_pixels(active_pixels),
-		.VGA_R(vga_r_color),
-		.VGA_G(vga_g_color),
-		.VGA_B(vga_b_color)
-	);
+        .active_pixels(active_pixels),
+        .game_state(current_game_state), // NEW INPUT
+        .VGA_R(vga_r_c),
+        .VGA_G(vga_g_c),
+        .VGA_B(vga_b_c)
+    );
 
-
-	// --- Connect Internal Color Wires to Top-Level VGA Ports ---
-	always @(posedge clk) begin
-		VGA_R <= vga_r_color;
-		VGA_G <= vga_g_color;
-		VGA_B <= vga_b_color;
-	end
-	
+    always @(posedge clk) begin
+        VGA_R <= vga_r_c;
+        VGA_G <= vga_g_c;
+        VGA_B <= vga_b_c;
+    end
 
 endmodule
