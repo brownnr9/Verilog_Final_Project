@@ -174,16 +174,16 @@ set_location_assignment PIN_AA14 -to KEY[0]
 set_location_assignment PIN_AA15 -to KEY[1]
 set_location_assignment PIN_W15 -to KEY[2]
 set_location_assignment PIN_Y16 -to KEY[3]
-set_location_assignment PIN_V16 -to LEDR[0] -disable
-set_location_assignment PIN_W16 -to LEDR[1] -disable
-set_location_assignment PIN_V17 -to LEDR[2] -disable
-set_location_assignment PIN_V18 -to LEDR[3] -disable
-set_location_assignment PIN_W17 -to LEDR[4] -disable
-set_location_assignment PIN_W19 -to LEDR[5] -disable
-set_location_assignment PIN_Y19 -to LEDR[6] -disable
-set_location_assignment PIN_W20 -to LEDR[7] -disable
-set_location_assignment PIN_W21 -to LEDR[8] -disable
-set_location_assignment PIN_Y21 -to LEDR[9] -disable
+set_location_assignment PIN_V16 -to LEDR[0]
+set_location_assignment PIN_W16 -to LEDR[1]
+set_location_assignment PIN_V17 -to LEDR[2]
+set_location_assignment PIN_V18 -to LEDR[3]
+set_location_assignment PIN_W17 -to LEDR[4]
+set_location_assignment PIN_W19 -to LEDR[5]
+set_location_assignment PIN_Y19 -to LEDR[6]
+set_location_assignment PIN_W20 -to LEDR[7]
+set_location_assignment PIN_W21 -to LEDR[8]
+set_location_assignment PIN_Y21 -to LEDR[9]
 set_location_assignment PIN_AD7 -to PS2_CLK
 set_location_assignment PIN_AE7 -to PS2_DAT
 set_location_assignment PIN_AD9 -to PS2_CLK2

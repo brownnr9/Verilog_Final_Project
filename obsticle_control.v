@@ -2,12 +2,14 @@ module obstacle_control #(
     // Parameters for Obstacle Size and Speed
     parameter OBSTACLE_WIDTH 	= 10'd30,
     parameter OBSTACLE_HEIGHT 	= 10'd30,
-    parameter OBSTACLE_Y_SPEED 	= 10'd8 // How many pixels to move per game clock cycle
+    parameter OBSTACLE_X_SPEED 	= 10'd5,    // Horizontal speed (moving left)
+    parameter Y_AMPLITUDE       = 10'd10,   // Max vertical distance of the PUSH UP
+    parameter Y_INITIAL_OFFSET  = 10'd100    // New: Initial height (start high)
 ) (
     input 					clk, 		// 50 MHz clock
     input 					rst, 		// Reset signal (active high)
     input 					game_en,	// Slow clock enable from game_clock_generator
-	input						collision,
+	input						collision,  // Input from collision detector
 	
     // Outputs for the renderer and collision detector
     output reg [9:0] 		obstacle_x_pos, 
@@ -19,34 +21,81 @@ module obstacle_control #(
 );
 
     // --- Local Constants ---
-    parameter MAX_Y 	= 10'd479; // Bottom of the screen
-    parameter MIN_Y 	= 10'd0;   // Top of the screen
-    parameter MAX_X 	= 10'd639; // Rightmost pixel 
+    parameter MAX_X             = 10'd639; // Rightmost pixel
+    parameter X_START_POS       = MAX_X + 10'd1; // Off-screen right position for spawn
+    parameter X_RESET_THRESHOLD = 10'd0 ; // Reset when completely off screen left
+    parameter Y_BASELINE 	    = 10'd315; // The fixed Y baseline (from top.v player Y start)
+    parameter Y_MIN_START       = Y_BASELINE - OBSTACLE_HEIGHT; // Top edge of the obstacle at baseline
+    parameter Y_STEP_SIZE      = 10'd3; // Vertical step size
+    parameter Y_MAX_DISPLACEMENT = Y_INITIAL_OFFSET + Y_AMPLITUDE; // Highest point of the arc
 
-    // Define the threshold for resetting the obstacle
-    parameter RESET_THRESHOLD = MAX_Y - OBSTACLE_HEIGHT + 1'b1;
-
+    // --- Arc Control Registers ---
+    reg  [9:0] y_offset;        // Current vertical displacement from the baseline (Total height)
+    // 2-bit state machine for the arc: 2'b01=PUSH/ASCEND, 2'b10=FALL/DESCEND
+    reg  [1:0] arc_state;       
+    
     // Assign width/height for external use
-    assign obstacle_width  = OBSTACLE_WIDTH;
-    assign obstacle_height = OBSTACLE_HEIGHT;
+    assign obstacle_width       = OBSTACLE_WIDTH;
+    assign obstacle_height      = OBSTACLE_HEIGHT;
+
 
     // --- Obstacle Movement Logic (Sequential) ---
     always @(posedge clk or negedge rst) begin
         if (rst == 1'b0) begin
-            // Initial position:
-            obstacle_x_pos <= 10'd300; 
-            obstacle_y_pos <= MIN_Y;
+            // Initialization: Start off-screen right
+            obstacle_x_pos <= X_START_POS; 
+            
+            // Start high up and ready for the push phase
+            y_offset       <= Y_INITIAL_OFFSET; 
+            arc_state      <= 2'b01; // Start in the PUSH/Ascending phase
+            
+            // Initial Y position calculation
+            obstacle_y_pos <= Y_MIN_START - Y_INITIAL_OFFSET; 
+            
         end else if (game_en) begin
-            // Check for collision with the bottom of the screen
-            if (obstacle_y_pos >= RESET_THRESHOLD || collision) begin
-                // Reset to top (start slightly off screen)
-                obstacle_y_pos <= MIN_Y; 
-                // For simplicity, reset X position to a new location (fixed for now)
-                obstacle_x_pos <= 10'd300; 
-            end else begin
-                // Move down the screen
-					 if(!collision)
-                obstacle_y_pos <= obstacle_y_pos + OBSTACLE_Y_SPEED;
+            
+            // The arc is complete when we are falling (2'b10) and hit the baseline (y_offset <= step size).
+            
+            // B. If Collision OR Hit Left Side OR Arc is Complete (Reset Condition)
+            if (collision || obstacle_x_pos <= X_RESET_THRESHOLD || 
+                ((arc_state == 2'b10) && (y_offset <= Y_STEP_SIZE))) begin 
+                
+                // Reset X position off-screen right
+                obstacle_x_pos <= X_START_POS; 
+                
+                // Reset arc parameters for next spawn (start fresh, PUSH phase)
+                y_offset <= Y_INITIAL_OFFSET; 
+                arc_state <= 2'b01; 
+                
+                // Y position is calculated dynamically below
+            
+            // C. Flying State (Horizontal and Vertical movement)
+            end else begin 
+                
+                // 1. Horizontal Movement (Moving Left)
+                obstacle_x_pos <= obstacle_x_pos - OBSTACLE_X_SPEED;
+                
+                // 2. Vertical Arc Movement (State Machine)
+                case (arc_state)
+                    2'b01: begin // PUSH / Ascending
+                        // Move up until maximum displacement is reached (initial offset + push amplitude)
+                        if (y_offset < Y_MAX_DISPLACEMENT) begin
+                            y_offset <= y_offset + Y_STEP_SIZE; 
+                        end else begin
+                            arc_state <= 2'b10; // Reached peak, switch to FALL
+                        end
+                    end
+                    2'b10: begin // FALL / Descending
+                        // Move down until the ARC_COMPLETE condition triggers the main reset logic
+                        y_offset <= y_offset - Y_STEP_SIZE;
+                    end
+                    default: arc_state <= 2'b10; // Failsafe: force falling
+                endcase
+                
+                // 3. Final Y Position Calculation
+                // The obstacle's top edge (Y_MIN_START) is offset UP by subtracting y_offset.
+                obstacle_y_pos <= Y_MIN_START - y_offset; 
+                
             end
         end
     end

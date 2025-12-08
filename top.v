@@ -22,17 +22,19 @@ module top(
 	// Player/Box Dimensions
 	parameter PLAYER_WIDTH 	    = 10'd30;
 	parameter PLAYER_BASE_HEIGHT= 10'd30; // Player segment height
-	parameter PLAYER_Y_START    = 10'd405; // Fixed Y position for player base
+	parameter PLAYER_Y_START    = 10'd315; // Fixed Y position for player base
 	// Movement Speed (used by player_control)
 	parameter MOVE_STEP 	    = 10'd4;
 
     // Obstacle Parameters
     parameter OBSTACLE_WIDTH    = 10'd30; // Changed to match player size
     parameter OBSTACLE_HEIGHT   = 10'd30; // Changed to match player size
-    parameter OBSTACLE_SPEED    = 10'd8;
+    parameter OBSTACLE_X_SPEED  = 10'd5;  // Horizontal speed (used by obstacle_control)
+    parameter Y_AMPLITUDE       = 10'd60; // Vertical amplitude for the push up
+    parameter Y_INITIAL_OFFSET  = 10'd50; // NEW: Initial height for the obstacle
     
-    // Bank Parameters (New)
-    parameter BANK_X_START      = 10'd50;  // Updated to left side location
+    // Bank Parameters
+    parameter BANK_X_START      = 10'd50;  // Left side location
 	parameter BANK_Y_START      = 10'd315; // Same baseline as player
 	parameter BANK_WIDTH        = 10'd60;
 
@@ -69,7 +71,7 @@ module top(
 	// Wire for Player's current dynamic height
 	wire [9:0] player_current_height; 
 	
-	// Wire for Box Drop (Output from bank_control, Input to player_health_manager)
+	// Wire for Box Drop (Output from bank_control, Input to player_height_manager)
     wire box_dropped;
     
     // Wire for Bank Level/Score (Output from bank_control)
@@ -111,18 +113,18 @@ module top(
 		.box_x(player_x_pos)
 	);
 	
-    // --- 3b. Instantiate Player Health/Height Manager ---
-    player_height_manager #(.BASE_HEIGHT(PLAYER_BASE_HEIGHT)) the_height_manager (
+    // --- 3b. Instantiate Player Height Manager ---
+    player_height_manager #(.BASE_HEIGHT(PLAYER_BASE_HEIGHT)) the_health_manager (
         .clk(clk),
         .rst(rst),
         .game_en(game_en),
         .collision(obsticle_collision),
-        .box_dropped_in(box_dropped), // NEW INPUT
+        .box_dropped_in(box_dropped),
         .current_height(player_current_height) // Output of current dynamic height
     );
     
-    // --- 3c. Instantiate Bank Control Module (UPDATED) ---
-    bank_control #(.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT), // PLAYER_WIDTH removed
+    // --- 3c. Instantiate Bank Control Module ---
+    bank_control #(.PLAYER_BASE_HEIGHT(PLAYER_BASE_HEIGHT),
                    .BANK_X_START(BANK_X_START),
                    .BANK_WIDTH(BANK_WIDTH)) the_bank_control (
         .clk(clk),
@@ -139,7 +141,10 @@ module top(
     // --- 4. Instantiate Obstacle Control Module ---
     obstacle_control #(.OBSTACLE_WIDTH(OBSTACLE_WIDTH),
                          .OBSTACLE_HEIGHT(OBSTACLE_HEIGHT),
-                         .OBSTACLE_Y_SPEED(OBSTACLE_SPEED)) the_obstacle_control (
+                         .OBSTACLE_X_SPEED(OBSTACLE_X_SPEED),
+                         .Y_AMPLITUDE(Y_AMPLITUDE),
+                         .Y_INITIAL_OFFSET(Y_INITIAL_OFFSET)) // Passing the new parameter
+    the_obstacle_control (
         .clk(clk),
         .rst(rst),
         .game_en(game_en),
