@@ -55,15 +55,20 @@ module collectible_control #(
         next_state = state;
         case (state)
             S_WAIT: begin
-                // Only spawn if we aren't holding max capacity (handled by top.v logic passed to player_is_holding_box)
-                if (wait_complete && !player_is_holding_box) next_state = S_SPAWN;
-                else if (wait_complete) next_state = S_WAIT; // Wait if full
+                if (wait_complete) next_state = S_SPAWN;
             end
             S_SPAWN: begin
                 if (box_x_pos < MAX_X) next_state = S_FLYING;
             end
             S_FLYING: begin
+                // Despawn conditions:
+                // 1. Caught by player
+                // 2. Moved off screen left
+                // 3. Hit the floor (Arc logic checks this via y_offset)
                 if (box_caught || box_x_pos <= X_RESET_THRESHOLD) 
+                    next_state = S_WAIT;
+                // NEW: If falling (2'b10) and near floor (y_offset <= step), disappear
+                else if ((arc_state == 2'b10) && (y_offset <= Y_STEP_SIZE))
                     next_state = S_WAIT;
             end
             default: next_state = S_WAIT;
@@ -110,11 +115,9 @@ module collectible_control #(
                                 arc_state <= 2'b10;
                         end
                         2'b10: begin // Down
-                            // BUG FIX: Prevent underflow
+                            // Normal physics, state machine handles despawn when this gets low
                             if (y_offset > Y_STEP_SIZE) 
                                 y_offset <= y_offset - Y_STEP_SIZE;
-                            else 
-                                y_offset <= 10'd0; // Snap to floor
                         end
                     endcase
                     box_y_pos <= Y_MIN_START - y_offset; 
