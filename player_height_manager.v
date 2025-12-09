@@ -1,44 +1,40 @@
 module player_height_manager #(
-    parameter BASE_HEIGHT = 10'd30 // Height of one segment
+    parameter BASE_HEIGHT = 10'd30 
 ) (
-    input 					clk, 		// 50 MHz clock
-    input 					rst, 		// Reset signal (active high)
-    input 					game_en,	// Slow clock enable from game_clock_generator
-	input						collision,  // Collision input (comes from detector)
-	input						box_dropped_in, // NEW: Input from bank_control
+    input 					clk, 		
+    input 					rst, 		
+    input 					game_en,	
+	input						box_caught,     // Caught a green box
+	input						box_dropped_in, // Dropped at bank
 	
-    output reg [9:0] 		current_height // Output current total height
+    output reg [9:0] 		current_height 
 );
+    
+    // Max height = Base + 2 Boxes
+    parameter MAX_HEIGHT = BASE_HEIGHT + (10'd2 * BASE_HEIGHT);
 
-    reg collision_flag_q; // Latched collision signal for edge detection
-    wire has_extra_box = (current_height > BASE_HEIGHT); // Check if we have more than the base
+    reg caught_flag_q; 
 
-    // --- Collision Edge Detector ---
-    // Detects when collision goes high on a game clock cycle
+    // Edge detection for catching
     always @(posedge clk or negedge rst) begin
         if (rst == 1'b0) begin
-            collision_flag_q <= 1'b0;
+            caught_flag_q <= 1'b0;
         end else if (game_en) begin
-            collision_flag_q <= collision;
+            caught_flag_q <= box_caught;
         end
     end
 
-    // --- Height Update Logic ---
     always @(posedge clk or negedge rst) begin
         if (rst == 1'b0) begin
-            // Start at one segment tall
-            current_height <= BASE_HEIGHT; 
+            current_height <= BASE_HEIGHT;
         end else if (game_en) begin
             
-            // Logic 1: Handle Collision (Increase Height)
-            // Detect the rising edge of collision (to prevent continuous growth)
-            if (collision && !collision_flag_q) begin
-                // Increase height by one segment
+            // 1. CATCH: If caught something AND not already full (Max 2 boxes)
+            if (box_caught && !caught_flag_q && current_height < MAX_HEIGHT) begin
                 current_height <= current_height + BASE_HEIGHT;
-            
-            // Logic 2: Handle Box Drop (Decrease Height)
-            end else if (box_dropped_in && has_extra_box) begin 
-                // Decrease height by one segment if a box was dropped successfully
+            end 
+            // 2. DROP: If dropping at bank AND has at least 1 box
+            else if (box_dropped_in && current_height > BASE_HEIGHT) begin 
                 current_height <= current_height - BASE_HEIGHT;
             end
         end
