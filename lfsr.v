@@ -1,6 +1,6 @@
 module random_generator #(
-    parameter MIN_VALUE  = 10'd10, // Minimum amplitude (e.g., 10 pixels)
-    parameter MAX_VALUE  = 10'd80  // Maximum amplitude (e.g., 80 pixels)
+    parameter MIN_VALUE  = 10'd50, // Minimum amplitude (e.g., 10 pixels)
+    parameter MAX_VALUE  = 10'd175  // Maximum amplitude (e.g., 80 pixels)
 ) (
     input clk,
     input rst,
